@@ -1,25 +1,34 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
+import { ServeStaticModule } from '@nestjs/serve-static';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { UploadsModule } from './uploads/uploads.module';
+import { TarotModule } from './tarot/tarot.module';
+import { DatabaseModule } from './database/database.module';
+import { MigrationsModule } from './migrations/migrations.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    MongooseModule.forRootAsync({
+    DatabaseModule,
+    ServeStaticModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI'),
-      }),
+      useFactory: (configService: ConfigService) => [{
+        rootPath: configService.get<string>('UPLOAD_PATH') || '/var/www/uploads',
+        serveRoot: '/uploads',
+      }],
       inject: [ConfigService],
     }),
     UsersModule,
     AuthModule,
+    UploadsModule,
+    TarotModule,
+    MigrationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
