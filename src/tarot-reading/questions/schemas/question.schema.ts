@@ -5,6 +5,9 @@ import { SpreadType } from '../../spread-types/schemas/spread-type.schema';
 @Schema({ timestamps: true })
 export class Question extends Document {
   @Prop({ required: true })
+  title: string;
+
+  @Prop({ required: true })
   content: string;
 
   @Prop({ required: true })
@@ -21,14 +24,7 @@ export class Question extends Document {
         interpretation: { type: String, required: true },
       },
     ],
-    required: true,
-    validate: {
-      validator: function(positions: any[]) {
-        // Ensure positions length matches spreadType positions length
-        return this.spreadType && positions.length === this.spreadType.positions.length;
-      },
-      message: 'Number of positions must match the spread type positions'
-    }
+    required: true
   })
   positions: {
     index: number;
@@ -53,6 +49,9 @@ export class Question extends Document {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  @Prop({ default: false })
+  isDeleted: boolean;
 }
 
 export const QuestionSchema = SchemaFactory.createForClass(Question); 

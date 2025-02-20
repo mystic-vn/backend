@@ -46,13 +46,20 @@ export class SpreadTypesService {
     return spreadType;
   }
 
-  async findByContext(context: string): Promise<SpreadType[]> {
+  async findByContext(contextSlug: string): Promise<SpreadType[]> {
+    // Tìm context theo slug
+    const context = await this.contextModel.findOne({ slug: contextSlug, isDeleted: false }).exec();
+    if (!context) {
+      throw new NotFoundException(`Context with slug "${contextSlug}" not found`);
+    }
+
+    // Tìm spread types có chứa context._id trong supportedContexts
     return this.spreadTypeModel
-      .find({ supportedContexts: context, isDeleted: false })
+      .find({ supportedContexts: context._id, isDeleted: false })
       .populate({
         path: 'supportedContexts',
         model: this.contextModel,
-        select: 'name',
+        select: 'name slug',
       })
       .exec();
   }

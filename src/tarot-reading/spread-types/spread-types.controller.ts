@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Delete, Query } from '@nestjs/common';
 import { SpreadTypesService } from './spread-types.service';
 import { CreateSpreadTypeDto } from './dto/create-spread-type.dto';
 import { SpreadType } from './schemas/spread-type.schema';
@@ -13,13 +13,11 @@ export class SpreadTypesController {
   }
 
   @Get()
-  async findAll(): Promise<SpreadType[]> {
+  async findAll(@Query('context') context?: string): Promise<SpreadType[]> {
+    if (context) {
+      return this.spreadTypesService.findByContext(context);
+    }
     return this.spreadTypesService.findAll();
-  }
-
-  @Get('context/:context')
-  async findByContext(@Param('context') context: string): Promise<SpreadType[]> {
-    return this.spreadTypesService.findByContext(context);
   }
 
   @Get(':id')

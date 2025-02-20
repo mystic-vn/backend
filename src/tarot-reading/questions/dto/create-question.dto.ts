@@ -26,16 +26,20 @@ class PreAnalyzedPatternsDto {
 
 export class CreateQuestionDto {
   @IsString()
+  title: string;
+
+  @IsString()
   content: string;
 
   @IsString()
   context: string;
 
   @IsString()
-  spreadType: string;
+  spreadTypeId: string;
 
   @IsNumber()
-  numberOfCards: number;
+  @IsOptional()
+  numberOfCards?: number;
 
   @IsArray()
   @ValidateNested({ each: true })
