@@ -22,9 +22,9 @@ export class QuestionsController {
     return this.questionsService.findByContext(context);
   }
 
-  @Get('spread-type/:spreadType')
-  async findBySpreadType(@Param('spreadType') spreadType: string): Promise<Question[]> {
-    return this.questionsService.findBySpreadType(spreadType);
+  @Get('spread-type/:spreadTypeId')
+  async findBySpreadType(@Param('spreadTypeId') spreadTypeId: string): Promise<Question[]> {
+    return this.questionsService.findBySpreadType(spreadTypeId);
   }
 
   @Get(':id')

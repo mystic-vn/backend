@@ -7,6 +7,7 @@ import { SpreadTypesController } from './spread-types/spread-types.controller';
 import { SpreadTypesService } from './spread-types/spread-types.service';
 import { SpreadType, SpreadTypeSchema } from './spread-types/schemas/spread-type.schema';
 import { Context, ContextSchema } from '../tarot/contexts/schemas/context.schema';
+import { ReadingAnalysisModule } from './reading-analysis/reading-analysis.module';
 
 @Module({
   imports: [
@@ -14,7 +15,8 @@ import { Context, ContextSchema } from '../tarot/contexts/schemas/context.schema
       { name: Question.name, schema: QuestionSchema },
       { name: SpreadType.name, schema: SpreadTypeSchema },
       { name: Context.name, schema: ContextSchema }
-    ])
+    ]),
+    ReadingAnalysisModule
   ],
   controllers: [QuestionsController, SpreadTypesController],
   providers: [QuestionsService, SpreadTypesService],

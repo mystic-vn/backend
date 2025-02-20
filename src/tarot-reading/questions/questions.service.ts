@@ -47,12 +47,9 @@ export class QuestionsService {
   }
 
   async findOne(id: string): Promise<Question> {
-    const question = await this.questionModel
-      .findOne({ _id: id, isDeleted: false })
-      .populate('spreadType')
-      .exec();
+    const question = await this.questionModel.findById(id).exec();
     if (!question) {
-      throw new NotFoundException(`Question with ID "${id}" not found`);
+      throw new NotFoundException('Question not found');
     }
     return question;
   }
@@ -64,10 +61,9 @@ export class QuestionsService {
       .exec();
   }
 
-  async findBySpreadType(spreadType: string): Promise<Question[]> {
+  async findBySpreadType(spreadTypeId: string): Promise<Question[]> {
     return this.questionModel
-      .find({ spreadType, isDeleted: false })
-      .populate('spreadType')
+      .find({ spreadType: spreadTypeId, isDeleted: false })
       .exec();
   }
 
