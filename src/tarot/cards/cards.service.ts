@@ -65,7 +65,9 @@ export class CardsService {
       page = 1, 
       limit = 10, 
       search,
-      isDeleted = false 
+      isDeleted = false,
+      sortBy = 'number',
+      sortOrder = 'ASC'
     } = query;
     const skip = (page - 1) * limit;
 
@@ -93,9 +95,13 @@ export class CardsService {
       ];
     }
 
+    const sort: any = {};
+    sort[sortBy] = sortOrder === 'ASC' ? 1 : -1;
+
     const [items, total] = await Promise.all([
       this.cardModel
         .find(filter)
+        .sort(sort)
         .skip(skip)
         .limit(limit)
         .populate({

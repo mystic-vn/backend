@@ -9,6 +9,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { TarotModule } from './tarot/tarot.module';
 import { DatabaseModule } from './database/database.module';
 import { MigrationsModule } from './migrations/migrations.module';
+import { TarotReadingModule } from './tarot-reading/tarot-reading.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { MigrationsModule } from './migrations/migrations.module';
     UploadsModule,
     TarotModule,
     MigrationsModule,
+    TarotReadingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,6 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsUUID, IsString, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import { IsOptional, IsUUID, IsString, IsInt, Min, Max, IsBoolean, IsEnum } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+
+export enum SortOrder {
+  ASC = 'ASC',
+  DESC = 'DESC'
+}
 
 export class QueryCardDto {
   @ApiPropertyOptional()
@@ -43,4 +48,14 @@ export class QueryCardDto {
   @Transform(({ value }) => value === 'true')
   @IsBoolean()
   isDeleted?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sortBy?: string;
+
+  @ApiPropertyOptional({ enum: SortOrder })
+  @IsOptional()
+  @IsEnum(SortOrder)
+  sortOrder?: SortOrder;
 }
