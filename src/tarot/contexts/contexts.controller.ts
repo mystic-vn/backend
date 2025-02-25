@@ -8,6 +8,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '../../users/enums/role.enum';
 import { Context } from './schemas/context.schema';
+import { Public } from '../../auth/decorators/public.decorator';
 
 @ApiTags('Tarot Contexts')
 @Controller('tarot/contexts')
@@ -24,13 +25,23 @@ export class ContextsController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Get all contexts' })
   @ApiResponse({ status: 200, type: [Context] })
   findAll() {
     return this.contextsService.findAll();
   }
 
+  @Get('slug/:slug')
+  @Public()
+  @ApiOperation({ summary: 'Get a context by slug' })
+  @ApiResponse({ status: 200, type: Context })
+  findBySlug(@Param('slug') slug: string) {
+    return this.contextsService.findBySlug(slug);
+  }
+
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Get a context by id' })
   @ApiResponse({ status: 200, type: Context })
   findOne(@Param('id') id: string) {

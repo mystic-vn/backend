@@ -61,6 +61,35 @@ export class QuestionsService {
       .exec();
   }
 
+  async findByContextPaginated(
+    context: string,
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<{ items: Question[]; hasMore: boolean }> {
+    const skip = (page - 1) * limit;
+    
+    const [items, total] = await Promise.all([
+      this.questionModel
+        .find({ context, isDeleted: false })
+        .populate('spreadType')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit + 1)
+        .exec(),
+      this.questionModel.countDocuments({ context, isDeleted: false }),
+    ]);
+
+    const hasMore = items.length > limit;
+    if (hasMore) {
+      items.pop(); // Remove the extra item we fetched to check hasMore
+    }
+
+    return {
+      items,
+      hasMore,
+    };
+  }
+
   async findBySpreadType(spreadTypeId: string): Promise<Question[]> {
     return this.questionModel
       .find({ spreadType: spreadTypeId, isDeleted: false })

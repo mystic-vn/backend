@@ -37,6 +37,18 @@ export class ContextsService {
     return context;
   }
 
+  async findBySlug(slug: string): Promise<Context> {
+    const context = await this.contextModel
+      .findOne({ slug, isDeleted: { $ne: true } })
+      .exec();
+
+    if (!context) {
+      throw new NotFoundException(`Context with slug "${slug}" not found`);
+    }
+
+    return context;
+  }
+
   async update(id: string, updateContextDto: UpdateContextDto): Promise<Context> {
     const updatedContext = await this.contextModel
       .findOneAndUpdate(

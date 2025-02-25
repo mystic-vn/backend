@@ -9,8 +9,40 @@ export class Question extends Document {
   @Prop({ required: true })
   content: string;
 
+  @Prop({ required: true })
+  context: string;
+
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'SpreadType', required: true })
   spreadType: string;
+
+  @Prop({ type: [{ 
+    index: { type: Number, required: true },
+    aspect: { type: String, required: true },
+    interpretation: { type: String, required: true }
+  }], required: true })
+  positions: Array<{
+    index: number;
+    aspect: string;
+    interpretation: string;
+  }>;
+
+  @Prop({ type: [String], default: [] })
+  keywords: string[];
+
+  @Prop({
+    type: {
+      cardCombinations: { type: [String], default: [] },
+      interpretationTemplates: { type: [String], default: [] }
+    },
+    default: { cardCombinations: [], interpretationTemplates: [] }
+  })
+  preAnalyzedPatterns: {
+    cardCombinations: string[];
+    interpretationTemplates: string[];
+  };
+
+  @Prop({ default: true })
+  isActive: boolean;
 
   @Prop({ default: false })
   isDeleted: boolean;
