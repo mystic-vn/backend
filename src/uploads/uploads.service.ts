@@ -13,8 +13,8 @@ export class UploadsService {
     await this.s3Service.deleteFile(key);
   }
 
-  async listFiles(prefix?: string) {
-    return this.s3Service.listFiles(prefix);
+  async listFiles(prefix?: string, search?: string) {
+    return this.s3Service.listFiles(prefix, search);
   }
 
   async createFolder(folderPath: string): Promise<void> {

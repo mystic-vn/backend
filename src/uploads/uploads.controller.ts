@@ -19,8 +19,16 @@ export class UploadsController {
     required: false,
     description: 'Đường dẫn thư mục để liệt kê nội dung',
   })
-  async listFiles(@Query('prefix') prefix?: string) {
-    return this.uploadsService.listFiles(prefix);
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Từ khóa tìm kiếm tên file',
+  })
+  async listFiles(
+    @Query('prefix') prefix?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.uploadsService.listFiles(prefix, search);
   }
 
   @Post()

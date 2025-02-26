@@ -40,11 +40,11 @@ class PaginatedCardsResponse implements PaginatedCards {
 
 @ApiTags('Tarot Cards')
 @Controller('tarot/cards')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class CardsController {
   constructor(private readonly cardsService: CardsService) {}
 
   @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Create a new tarot card' })
   @ApiResponse({ status: HttpStatus.CREATED, type: Card })
@@ -86,6 +86,7 @@ export class CardsController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Update a tarot card' })
   @ApiResponse({ status: HttpStatus.OK, type: Card })
@@ -97,6 +98,7 @@ export class CardsController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a tarot card' })

@@ -1,7 +1,8 @@
 import { Injectable, OnModuleInit, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, CopyObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, CopyObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import * as sharp from 'sharp';
 
 @Injectable()
 export class S3Service implements OnModuleInit {
@@ -37,6 +38,28 @@ export class S3Service implements OnModuleInit {
     }
   }
 
+  private async compressImage(buffer: Buffer, mimetype: string): Promise<Buffer> {
+    try {
+      // Nếu là ảnh WebP, PNG hoặc JPEG
+      if (mimetype.includes('image/')) {
+        const image = sharp(buffer);
+        
+        // Chuyển đổi tất cả ảnh sang WebP với chất lượng 80%
+        return await image
+          .webp({ quality: 80 })
+          .resize(1200, 1200, { 
+            fit: 'inside', // Giữ tỷ lệ ảnh, không crop
+            withoutEnlargement: true // Không phóng to ảnh nhỏ
+          })
+          .toBuffer();
+      }
+      return buffer; // Trả về buffer gốc nếu không phải ảnh
+    } catch (error) {
+      console.error('Error compressing image:', error);
+      return buffer; // Trả về buffer gốc nếu có lỗi
+    }
+  }
+
   async uploadFile(file: Express.Multer.File, folder?: string): Promise<string> {
     try {
       // Tạo key với cấu trúc thư mục
@@ -46,11 +69,14 @@ export class S3Service implements OnModuleInit {
 
       console.log('Attempting to upload file:', { bucket: this.bucket, key });
       
+      // Nén ảnh nếu là file ảnh
+      const compressedBuffer = await this.compressImage(file.buffer, file.mimetype);
+      
       const command = new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
-        Body: file.buffer,
-        ContentType: file.mimetype
+        Body: compressedBuffer,
+        ContentType: file.mimetype.includes('image/') ? 'image/webp' : file.mimetype // Đổi content type sang webp nếu là ảnh
       });
 
       await this.s3Client.send(command);
@@ -98,52 +124,89 @@ export class S3Service implements OnModuleInit {
     }
   }
 
-  async listFiles(prefix?: string): Promise<{ key: string; size: number; lastModified: Date; url: string; isDirectory: boolean }[]> {
+  private async getSignedUrl(key: string): Promise<string> {
     try {
-      console.log('Listing files from bucket:', this.bucket, 'with prefix:', prefix || 'root');
+      const command = new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      });
+      return await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
+    } catch (error) {
+      console.error('Error getting signed URL:', error);
+      return `https://${this.bucket}.s3.amazonaws.com/${key}`;
+    }
+  }
+
+  async listFiles(prefix?: string, search?: string): Promise<Array<{
+    key: string;
+    size: number;
+    lastModified: Date;
+    url: string;
+    isDirectory: boolean;
+  }>> {
+    try {
       const command = new ListObjectsV2Command({
         Bucket: this.bucket,
-        Prefix: prefix ? prefix.replace(/^\/+|\/+$/g, '') + '/' : '',
-        Delimiter: '/'
+        Prefix: prefix || '',
+        Delimiter: '/',
       });
 
       const response = await this.s3Client.send(command);
-      
-      const files: { key: string; size: number; lastModified: Date; url: string; isDirectory: boolean }[] = [];
+      const files: Array<{
+        key: string;
+        size: number;
+        lastModified: Date;
+        url: string;
+        isDirectory: boolean;
+      }> = [];
 
-      // Thêm các thư mục
-      const directories = response.CommonPrefixes?.length || 0;
-      response.CommonPrefixes?.forEach(prefix => {
-        if (prefix.Prefix) {
-          files.push({
-            key: prefix.Prefix,
-            size: 0,
-            lastModified: new Date(),
-            url: '',
-            isDirectory: true
-          });
+      // Xử lý các thư mục (CommonPrefixes)
+      if (response.CommonPrefixes) {
+        for (const prefix of response.CommonPrefixes) {
+          if (prefix.Prefix) {
+            const key = prefix.Prefix;
+            const url = await this.getSignedUrl(key);
+            files.push({
+              key,
+              size: 0,
+              lastModified: new Date(),
+              url,
+              isDirectory: true,
+            });
+          }
         }
-      });
+      }
 
-      // Thêm các file
-      const fileCount = response.Contents?.filter(f => !f.Key?.endsWith('/')).length || 0;
-      response.Contents?.forEach(file => {
-        if (file.Key && file.Size && file.LastModified && !file.Key.endsWith('/')) {
-          files.push({
-            key: file.Key,
-            size: file.Size,
-            lastModified: file.LastModified,
-            url: `https://${this.bucket}.s3.amazonaws.com/${file.Key}`,
-            isDirectory: false
-          });
+      // Xử lý các file
+      if (response.Contents) {
+        for (const content of response.Contents) {
+          if (content.Key && !content.Key.endsWith('/')) {
+            const key = content.Key;
+            const url = await this.getSignedUrl(key);
+            files.push({
+              key,
+              size: content.Size || 0,
+              lastModified: content.LastModified || new Date(),
+              url,
+              isDirectory: false,
+            });
+          }
         }
-      });
+      }
 
-      console.log(`Found ${directories} directories and ${fileCount} files in ${prefix || 'root directory'}`);
+      // Lọc kết quả theo từ khóa tìm kiếm nếu có
+      if (search) {
+        const searchLower = search.toLowerCase();
+        return files.filter(file => {
+          const fileName = file.key.split('/').pop() || '';
+          return fileName.toLowerCase().includes(searchLower);
+        });
+      }
+
       return files;
     } catch (error) {
-      console.error('Error listing files:', error);
-      throw new InternalServerErrorException(`Failed to list files: ${error.message}`);
+      console.error('Error listing files from S3:', error);
+      throw new InternalServerErrorException('Could not list files from S3');
     }
   }
 
