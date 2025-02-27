@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { Cache } from 'cache-manager';
+import { Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { ReadingAnalysis } from './schemas/reading-analysis.schema';
 import { CreateReadingAnalysisDto } from './dto/create-reading-analysis.dto';
 import { GPTService } from './gpt.service';
@@ -15,6 +18,7 @@ export class ReadingAnalysisService {
   constructor(
     @InjectModel(ReadingAnalysis.name)
     private readingAnalysisModel: Model<ReadingAnalysis>,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private gptService: GPTService,
     private deepseekService: DeepseekService,
     private cardsService: CardsService,
@@ -22,8 +26,30 @@ export class ReadingAnalysisService {
     private questionsService: QuestionsService
   ) {}
 
+  private generateCacheKey(createDto: CreateReadingAnalysisDto): string {
+    // Tạo cache key từ các thông tin quan trọng
+    const keyParts = [
+      createDto.spreadTypeId,
+      createDto.context,
+      createDto.questionId || 'no-question',
+      ...createDto.cards.map(card => 
+        `${card.cardId}-${card.position}-${card.isReversed}`
+      )
+    ];
+    return `reading-analysis:${keyParts.join(':')}`;
+  }
+
   async analyze(createDto: CreateReadingAnalysisDto): Promise<ReadingAnalysis> {
     try {
+      // Kiểm tra cache
+      const cacheKey = this.generateCacheKey(createDto);
+      const cachedAnalysis = await this.cacheManager.get<ReadingAnalysis>(cacheKey);
+      
+      if (cachedAnalysis) {
+        console.log('Returning cached analysis');
+        return cachedAnalysis;
+      }
+
       // Lấy thông tin context
       const context = await this.contextsService.findOne(createDto.context);
       if (!context) {
@@ -52,21 +78,36 @@ export class ReadingAnalysisService {
 
       // Phân tích với GPT hoặc Deepseek
       let analysis;
-      try {
-        // Thử với OpenAI trước
-        analysis = await this.gptService.analyzeReading({
-          context: context.name,
-          question: question?.content || '',
-          cards: cardsWithDetails
-        });
-      } catch (error) {
-        console.error('OpenAI Analysis error:', error);
-        // Nếu OpenAI lỗi, thử với Deepseek
-        analysis = await this.deepseekService.analyzeReading({
-          context: context.name,
-          question: question?.content || '',
-          cards: cardsWithDetails
-        });
+      let retries = 0;
+      const MAX_RETRIES = 3;
+      const RETRY_DELAY = 1000;
+
+      while (retries < MAX_RETRIES) {
+        try {
+          // Thử với OpenAI
+          analysis = await this.gptService.analyzeReading({
+            context: context.name,
+            question: question?.content || '',
+            cards: cardsWithDetails
+          });
+          break;
+        } catch (error) {
+          console.error(`OpenAI Analysis error (attempt ${retries + 1}):`, error);
+          retries++;
+          
+          if (retries === MAX_RETRIES) {
+            // Nếu hết số lần thử với OpenAI, chuyển sang Deepseek
+            console.log('Switching to Deepseek...');
+            analysis = await this.deepseekService.analyzeReading({
+              context: context.name,
+              question: question?.content || '',
+              cards: cardsWithDetails
+            });
+            break;
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        }
       }
 
       // Trích xuất patterns
@@ -89,7 +130,12 @@ export class ReadingAnalysisService {
         extractedPatterns
       });
 
-      return await readingAnalysis.save();
+      const savedAnalysis = await readingAnalysis.save();
+      
+      // Lưu vào cache
+      await this.cacheManager.set(cacheKey, savedAnalysis);
+      
+      return savedAnalysis;
     } catch (error) {
       console.error('Analysis error:', error);
       throw error;
