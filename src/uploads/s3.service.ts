@@ -62,12 +62,25 @@ export class S3Service implements OnModuleInit {
 
   async uploadFile(file: Express.Multer.File, folder?: string): Promise<string> {
     try {
-      // Tạo key với cấu trúc thư mục
-      const key = folder 
-        ? `${folder.replace(/^\/+|\/+$/g, '')}/${Date.now()}-${file.originalname}`
-        : `uploads/${Date.now()}-${file.originalname}`;
+      // Xử lý folder path
+      let key;
+      if (folder) {
+        // Đảm bảo folder bắt đầu bằng uploads/
+        const normalizedFolder = folder.startsWith('uploads/') 
+          ? folder 
+          : `uploads/${folder}`;
+        
+        // Loại bỏ dấu / thừa và thêm timestamp + filename
+        key = `${normalizedFolder.replace(/\/+/g, '/')}/${Date.now()}-${file.originalname}`;
+      } else {
+        key = `uploads/${Date.now()}-${file.originalname}`;
+      }
 
-      console.log('Attempting to upload file:', { bucket: this.bucket, key });
+      console.log('Attempting to upload file:', { 
+        bucket: this.bucket, 
+        key,
+        originalFolder: folder
+      });
       
       // Nén ảnh nếu là file ảnh
       const compressedBuffer = await this.compressImage(file.buffer, file.mimetype);
@@ -145,13 +158,24 @@ export class S3Service implements OnModuleInit {
     isDirectory: boolean;
   }>> {
     try {
+      console.log('Listing files with params:', {
+        bucket: this.bucket,
+        prefix: prefix || '',
+        search
+      });
+
       const command = new ListObjectsV2Command({
         Bucket: this.bucket,
         Prefix: prefix || '',
-        Delimiter: '/',
+        Delimiter: '/'
       });
 
       const response = await this.s3Client.send(command);
+      console.log('S3 list response:', {
+        prefixes: response.CommonPrefixes?.length || 0,
+        contents: response.Contents?.length || 0
+      });
+
       const files: Array<{
         key: string;
         size: number;
@@ -165,12 +189,12 @@ export class S3Service implements OnModuleInit {
         for (const prefix of response.CommonPrefixes) {
           if (prefix.Prefix) {
             const key = prefix.Prefix;
-            const url = await this.getSignedUrl(key);
+            console.log('Processing directory:', key);
             files.push({
               key,
               size: 0,
               lastModified: new Date(),
-              url,
+              url: `https://${this.bucket}.s3.amazonaws.com/${key}`,
               isDirectory: true,
             });
           }
@@ -182,12 +206,12 @@ export class S3Service implements OnModuleInit {
         for (const content of response.Contents) {
           if (content.Key && !content.Key.endsWith('/')) {
             const key = content.Key;
-            const url = await this.getSignedUrl(key);
+            console.log('Processing file:', key);
             files.push({
               key,
               size: content.Size || 0,
               lastModified: content.LastModified || new Date(),
-              url,
+              url: `https://${this.bucket}.s3.amazonaws.com/${key}`,
               isDirectory: false,
             });
           }
@@ -195,15 +219,22 @@ export class S3Service implements OnModuleInit {
       }
 
       // Lọc kết quả theo từ khóa tìm kiếm nếu có
+      let filteredFiles = files;
       if (search) {
         const searchLower = search.toLowerCase();
-        return files.filter(file => {
+        filteredFiles = files.filter(file => {
           const fileName = file.key.split('/').pop() || '';
           return fileName.toLowerCase().includes(searchLower);
         });
       }
 
-      return files;
+      console.log('Filtered files:', {
+        total: filteredFiles.length,
+        directories: filteredFiles.filter(f => f.isDirectory).length,
+        files: filteredFiles.filter(f => !f.isDirectory).length
+      });
+
+      return filteredFiles;
     } catch (error) {
       console.error('Error listing files from S3:', error);
       throw new InternalServerErrorException('Could not list files from S3');

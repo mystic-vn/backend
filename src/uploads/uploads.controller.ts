@@ -51,8 +51,12 @@ export class UploadsController {
   })
   async uploadFile(
     @UploadedFile() file: Express.Multer.File,
-    @Query('folder') folder?: string,
+    @Body('folder') folder?: string,
   ) {
+    console.log('Uploading file:', {
+      originalname: file.originalname,
+      folder
+    });
     return this.uploadsService.uploadFile(file, folder);
   }
 
