@@ -34,7 +34,7 @@ import { TarotReadingModule } from './tarot-reading/tarot-reading.module';
         host: configService.get('REDIS_HOST', 'localhost'),
         port: configService.get('REDIS_PORT', 6379),
         password: configService.get('REDIS_PASSWORD'),
-        ttl: 30 * 24 * 60 * 60, // 30 ngày
+        ttl: 24 * 60 * 60, // 24 giờ
       }),
       inject: [ConfigService],
     }),

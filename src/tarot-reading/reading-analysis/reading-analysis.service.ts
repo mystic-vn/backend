@@ -15,6 +15,15 @@ import { Question } from '../questions/schemas/question.schema';
 
 @Injectable()
 export class ReadingAnalysisService {
+  private readonly API_TIMEOUT = 30000; // 30 giây
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY = 2000; // 2 giây delay giữa các lần retry
+  private readonly ERROR_CODES = {
+    TIMEOUT: 'TIMEOUT',
+    FORMAT_ERROR: 'FORMAT_ERROR',
+    VALIDATION_ERROR: 'VALIDATION_ERROR'
+  };
+
   constructor(
     @InjectModel(ReadingAnalysis.name)
     private readingAnalysisModel: Model<ReadingAnalysis>,
@@ -39,6 +48,74 @@ export class ReadingAnalysisService {
     return `reading-analysis:${keyParts.join(':')}`;
   }
 
+  private validateAnalysisResponse(analysis: any, cardCount: number) {
+    // Kiểm tra format cơ bản
+    if (!analysis || typeof analysis !== 'object') {
+      throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: Response không phải là object`);
+    }
+
+    // Kiểm tra overview
+    if (!analysis.overview || typeof analysis.overview !== 'string') {
+      throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: Overview không hợp lệ`);
+    }
+
+    // Kiểm tra conclusion
+    if (!analysis.conclusion || typeof analysis.conclusion !== 'string') {
+      throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: Conclusion không hợp lệ`);
+    }
+
+    // Kiểm tra positionAnalyses
+    if (!Array.isArray(analysis.positionAnalyses)) {
+      throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: positionAnalyses không phải là array`);
+    }
+
+    // Kiểm tra số lượng phân tích
+    if (analysis.positionAnalyses.length !== cardCount) {
+      throw new Error(
+        `${this.ERROR_CODES.VALIDATION_ERROR}: Số lượng phân tích (${analysis.positionAnalyses.length}) không khớp với số lượng lá bài (${cardCount})`
+      );
+    }
+
+    // Kiểm tra từng phân tích
+    analysis.positionAnalyses.forEach((pos: any, idx: number) => {
+      if (!pos || typeof pos !== 'object') {
+        throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: Phân tích vị trí ${idx} không hợp lệ`);
+      }
+
+      if (typeof pos.position !== 'number') {
+        throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: Position của vị trí ${idx} không hợp lệ`);
+      }
+
+      if (!pos.interpretation || typeof pos.interpretation !== 'string') {
+        throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: Interpretation của vị trí ${idx} không hợp lệ`);
+      }
+
+      if (!pos.advice || typeof pos.advice !== 'string') {
+        throw new Error(`${this.ERROR_CODES.FORMAT_ERROR}: Advice của vị trí ${idx} không hợp lệ`);
+      }
+    });
+
+    return true;
+  }
+
+  private async callAIWithTimeout(service: 'gpt' | 'deepseek', params: any): Promise<any> {
+    try {
+      const aiService = service === 'gpt' ? this.gptService : this.deepseekService;
+      
+      return await Promise.race([
+        aiService.analyzeReading(params),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(this.ERROR_CODES.TIMEOUT)), this.API_TIMEOUT)
+        )
+      ]);
+    } catch (error) {
+      if (error.message === this.ERROR_CODES.TIMEOUT) {
+        throw new Error(`${service.toUpperCase()} API timeout sau ${this.API_TIMEOUT}ms`);
+      }
+      throw error;
+    }
+  }
+
   async analyze(createDto: CreateReadingAnalysisDto): Promise<ReadingAnalysis> {
     try {
       // Kiểm tra cache
@@ -50,19 +127,14 @@ export class ReadingAnalysisService {
         return cachedAnalysis;
       }
 
-      // Lấy thông tin context
-      const context = await this.contextsService.findOne(createDto.context);
+      // Lấy thông tin context và question
+      const [context, question] = await Promise.all([
+        this.contextsService.findOne(createDto.context),
+        createDto.questionId ? this.questionsService.findOne(createDto.questionId) : null
+      ]);
+
       if (!context) {
         throw new NotFoundException('Context not found');
-      }
-
-      // Lấy thông tin câu hỏi nếu có
-      let question: Question | undefined;
-      if (createDto.questionId) {
-        question = await this.questionsService.findOne(createDto.questionId);
-        if (!question) {
-          throw new NotFoundException('Question not found');
-        }
       }
 
       // Lấy thông tin chi tiết của các lá bài
@@ -79,39 +151,49 @@ export class ReadingAnalysisService {
       // Phân tích với GPT hoặc Deepseek
       let analysis;
       let retries = 0;
-      const MAX_RETRIES = 3;
-      const RETRY_DELAY = 1000;
+      let currentService: 'gpt' | 'deepseek' = 'gpt';
 
-      while (retries < MAX_RETRIES) {
+      while (retries < this.MAX_RETRIES) {
         try {
-          // Thử với OpenAI
-          analysis = await this.gptService.analyzeReading({
+          console.log(`Attempt ${retries + 1}/${this.MAX_RETRIES} with ${currentService.toUpperCase()}`);
+          
+          const params = {
             context: context.name,
             question: question?.content || '',
             cards: cardsWithDetails
-          });
+          };
+
+          analysis = await this.callAIWithTimeout(currentService, params);
+          
+          // Log response từ AI để debug
+          console.log(`${currentService.toUpperCase()} Analysis Response:`, JSON.stringify(analysis, null, 2));
+          
+          // Validate response
+          this.validateAnalysisResponse(analysis, createDto.cards.length);
+          
           break;
         } catch (error) {
-          console.error(`OpenAI Analysis error (attempt ${retries + 1}):`, error);
-          retries++;
+          console.error(`${currentService.toUpperCase()} Analysis error (attempt ${retries + 1}):`, error);
           
-          if (retries === MAX_RETRIES) {
-            // Nếu hết số lần thử với OpenAI, chuyển sang Deepseek
-            console.log('Switching to Deepseek...');
-            analysis = await this.deepseekService.analyzeReading({
-              context: context.name,
-              question: question?.content || '',
-              cards: cardsWithDetails
-            });
-            break;
+          // Nếu là lỗi format hoặc validation, thử lại
+          if (error.message.startsWith(this.ERROR_CODES.FORMAT_ERROR) || 
+              error.message.startsWith(this.ERROR_CODES.VALIDATION_ERROR)) {
+            retries++;
           }
           
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          // Nếu là lỗi timeout, chuyển sang service khác
+          if (error.message.includes(this.ERROR_CODES.TIMEOUT)) {
+            currentService = 'deepseek';
+          }
+          
+          if (retries === this.MAX_RETRIES || (currentService === 'deepseek' && error.message.includes(this.ERROR_CODES.TIMEOUT))) {
+            throw new Error(`Không thể phân tích sau ${this.MAX_RETRIES} lần thử. Lỗi cuối cùng: ${error.message}`);
+          }
+          
+          // Delay trước khi thử lại
+          await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
         }
       }
-
-      // Trích xuất patterns
-      const extractedPatterns = this.extractPatterns(createDto, analysis);
 
       // Tạo và lưu phân tích
       const readingAnalysis = new this.readingAnalysisModel({
@@ -121,19 +203,31 @@ export class ReadingAnalysisService {
         cards: createDto.cards,
         analysis: {
           overview: analysis.overview,
-          positionAnalyses: analysis.positionAnalyses.map(analysis => ({
-            ...analysis,
-            cardId: createDto.cards.find(c => c.position === analysis.position)?.cardId
-          })),
+          positionAnalyses: createDto.cards.map(card => {
+            const positionAnalysis = analysis.positionAnalyses.find(
+              a => a.position === card.position
+            );
+            
+            if (!positionAnalysis) {
+              throw new Error(`${this.ERROR_CODES.VALIDATION_ERROR}: Không tìm thấy phân tích cho vị trí ${card.position}`);
+            }
+
+            return {
+              position: card.position,
+              cardId: card.cardId,
+              interpretation: positionAnalysis.interpretation,
+              advice: positionAnalysis.advice
+            };
+          }),
           conclusion: analysis.conclusion
         },
-        extractedPatterns
+        extractedPatterns: this.extractPatterns(createDto, analysis)
       });
 
       const savedAnalysis = await readingAnalysis.save();
       
-      // Lưu vào cache
-      await this.cacheManager.set(cacheKey, savedAnalysis);
+      // Lưu vào cache với TTL 24 giờ
+      await this.cacheManager.set(cacheKey, savedAnalysis, 86400);
       
       return savedAnalysis;
     } catch (error) {
